@@ -1,0 +1,101 @@
+# PyTorch Inference Platform — full local stack.
+#
+#   docker compose up --build                 # start everything
+#   docker compose up --build --scale inference-worker=3
+#
+# The worker defaults to the `stub` runtime so the whole stack runs with no
+# torch/GPU. Flip RUNTIME_BACKEND + build with INSTALL_ML=1 for real PyTorch.
+
+x-common-env: &common-env
+  REDIS_URL: redis://redis:6379/0
+  LOG_LEVEL: INFO
+  ENVIRONMENT: docker
+  OTEL_TRACES_EXPORTER: none           # set to "otlp" to ship spans to the collector
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build: { context: ., dockerfile: Dockerfile }
+    command: ["uvicorn", "services.api_gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *common-env
+      GATEWAY_API_KEYS: "demo-key-staff,demo-key-ml"
+      GATEWAY_RATE_LIMIT_RPS: "500"
+      GATEWAY_REQUEST_TIMEOUT_MS: "2000"
+    ports: ["8080:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  scheduler:
+    build: { context: ., dockerfile: Dockerfile }
+    command: ["python", "-m", "services.scheduler.main"]
+    environment:
+      <<: *common-env
+      SCHEDULER_STRATEGY: priority
+      MAX_BATCH_SIZE: "32"
+      MAX_WAIT_MS: "10"
+    ports: ["8085:8085"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  inference-worker:
+    build: { context: ., dockerfile: Dockerfile }
+    command: ["python", "-m", "services.inference_worker.main"]
+    environment:
+      <<: *common-env
+      RUNTIME_BACKEND: stub          # torch_eager | torchscript | onnx (needs INSTALL_ML)
+      DEVICE: cpu
+      DEFAULT_MODEL: resnet
+      DEFAULT_MODEL_VERSION: v2
+      WORKER_CONCURRENCY: "2"
+      MODEL_ARTIFACT_DIR: /app/models/artifacts
+    # No host port published: workers are internal. Scale with --scale inference-worker=N
+    depends_on:
+      redis: { condition: service_healthy }
+
+  metrics:
+    build: { context: ., dockerfile: Dockerfile }
+    command: ["python", "-m", "services.metrics.main"]
+    environment:
+      <<: *common-env
+    ports: ["9000:9000"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    depends_on: [api-gateway, scheduler, metrics]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports: ["4318:4318"]   # OTLP/HTTP
+
+volumes: {}

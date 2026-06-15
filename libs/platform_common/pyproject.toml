@@ -1,0 +1,22 @@
+[project]
+name = "platform-common"
+version = "0.1.0"
+description = "Shared kernel for the PyTorch Inference Platform: schemas, config, messaging, observability."
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "redis>=5.2",
+    "prometheus-client>=0.21",
+    "opentelemetry-api>=1.28",
+    "opentelemetry-sdk>=1.28",
+    "structlog>=24.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["platform_common*"]

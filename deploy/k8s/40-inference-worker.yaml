@@ -1,0 +1,79 @@
+# Inference workers: the GPU tier. Autoscaled on queue depth (an external
+# metric) rather than CPU, because CPU is a poor proxy for GPU saturation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-worker
+  namespace: inference
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: inference-worker } }
+  template:
+    metadata:
+      labels: { app: inference-worker }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+    spec:
+      # For real GPU serving:
+      #   nodeSelector: { cloud.google.com/gke-accelerator: nvidia-tesla-t4 }
+      #   resources.limits: { nvidia.com/gpu: 1 }  and DEVICE=cuda, INSTALL_ML=1 image
+      containers:
+        - name: inference-worker
+          image: pytorch-inference-platform:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.inference_worker.main"]
+          ports: [{ containerPort: 8090 }]
+          env:
+            - name: WORKER_ID            # unique per pod
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          envFrom:
+            - configMapRef: { name: platform-config }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8090 }
+            initialDelaySeconds: 8
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8090 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "2", memory: "2Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-worker
+  namespace: inference
+spec:
+  clusterIP: None   # headless: lets Prometheus discover every worker pod
+  selector: { app: inference-worker }
+  ports: [{ port: 8090, targetPort: 8090 }]
+---
+# Autoscale on queue depth. Requires an external-metrics adapter (e.g. KEDA with
+# its Redis scaler, or prometheus-adapter exposing pip_platform_batch_queue_depth).
+# Shown here with the Pods metric KEDA would surface.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: inference-worker
+  namespace: inference
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: inference-worker
+  minReplicas: 2
+  maxReplicas: 12
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: pip_platform_batch_queue_depth
+        target:
+          type: AverageValue
+          averageValue: "20"   # scale up when >20 batches queued per worker

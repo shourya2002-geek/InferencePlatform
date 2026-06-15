@@ -1,0 +1,74 @@
+[project]
+name = "pytorch-inference-platform"
+version = "0.1.0"
+description = "A low-latency ML inference serving platform (TorchServe / Triton / Ray Serve, simplified for teaching)."
+requires-python = ">=3.13"
+readme = "README.md"
+license = { text = "MIT" }
+
+# Core serving dependencies. Heavy ML deps (torch / onnxruntime) are kept in a
+# separate optional group so the control plane (gateway / scheduler / metrics)
+# can be installed and run without a multi-gigabyte download.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "redis>=5.2",
+    "python-multipart>=0.0.12",
+    "prometheus-client>=0.21",
+    "opentelemetry-api>=1.28",
+    "opentelemetry-sdk>=1.28",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-exporter-otlp-proto-http>=1.28",
+    "httpx>=0.27",
+    "structlog>=24.4",
+    "numpy>=2.0",
+    "pillow>=11.0",
+]
+
+[project.optional-dependencies]
+# Real PyTorch runtime. Install with: pip install -e ".[ml]"
+ml = [
+    "torch>=2.5",
+    "torchvision>=0.20",
+    "onnx>=1.17",
+    "onnxruntime>=1.20",
+]
+# Developer + load-testing tooling.
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "fakeredis>=2.26",
+    "locust>=2.32",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "rich>=13.9",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# The repo root is importable so `services.*` packages resolve. platform_common
+# is installed separately from libs/platform_common (see Makefile `install`).
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["services*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "C4", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["services", "libs"]
+addopts = "-ra -q"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true

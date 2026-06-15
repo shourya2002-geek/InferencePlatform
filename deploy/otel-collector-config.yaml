@@ -1,0 +1,22 @@
+# Minimal OpenTelemetry Collector config: accept OTLP/HTTP spans and log them.
+# Swap the `logging` exporter for `otlp`/`jaeger`/`tempo` to ship to a real
+# tracing backend.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

@@ -1,0 +1,115 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "PyTorch Inference Platform",
+  "uid": "pip-overview",
+  "tags": ["inference", "pytorch"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "5s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Throughput (req/s by status)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(pip_request_count_total{service=\"api-gateway\"}[1m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "End-to-end latency (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(pip_request_latency_ms_bucket[1m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(pip_request_latency_ms_bucket[1m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(pip_request_latency_ms_bucket[1m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference time by model version (p95 ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, version) (rate(pip_inference_time_ms_bucket[1m])))",
+          "legendFormat": "{{version}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Average batch size",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(pip_batch_size_sum{service=\"scheduler\"}[1m])) / sum(rate(pip_batch_size_count{service=\"scheduler\"}[1m]))",
+          "legendFormat": "avg batch size"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth by stage (the bottleneck signal)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "pip_platform_request_stream_depth", "legendFormat": "request stream" },
+        { "expr": "pip_platform_batch_queue_depth", "legendFormat": "batch queue" },
+        { "expr": "pip_platform_inflight_batches", "legendFormat": "in-flight" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker utilization & liveness",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        { "expr": "pip_worker_utilization", "legendFormat": "util {{worker_id}}" },
+        { "expr": "pip_platform_workers_alive", "legendFormat": "workers alive" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Error rate (5m)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(pip_request_count_total{service=\"api-gateway\",status!=\"ok\"}[5m])) / clamp_min(sum(rate(pip_request_count_total{service=\"api-gateway\"}[5m])), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Batch-wait p95 (ms)",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(pip_stage_latency_ms_bucket{stage=\"batch_wait\"}[1m])))"
+        }
+      ]
+    }
+  ]
+}

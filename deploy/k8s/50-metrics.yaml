@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics
+  namespace: inference
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: metrics } }
+  template:
+    metadata:
+      labels: { app: metrics }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9000"
+    spec:
+      containers:
+        - name: metrics
+          image: pytorch-inference-platform:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.metrics.main"]
+          ports: [{ containerPort: 9000 }]
+          envFrom:
+            - configMapRef: { name: platform-config }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 9000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics
+  namespace: inference
+spec:
+  selector: { app: metrics }
+  ports: [{ port: 9000, targetPort: 9000 }]

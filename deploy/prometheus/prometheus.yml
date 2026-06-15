@@ -1,0 +1,31 @@
+# Prometheus scrape config for the inference platform.
+# Each service exposes /metrics; workers are discovered by DNS so `--scale`
+# replicas are all scraped.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: api-gateway
+    static_configs:
+      - targets: ["api-gateway:8080"]
+
+  - job_name: scheduler
+    static_configs:
+      - targets: ["scheduler:8085"]
+
+  - job_name: metrics-service
+    static_configs:
+      - targets: ["metrics:9000"]
+
+  - job_name: inference-worker
+    # Docker Compose service DNS returns one A record per replica → scrape all.
+    dns_sd_configs:
+      - names: ["inference-worker"]
+        type: A
+        port: 8090
+        refresh_interval: 10s
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
