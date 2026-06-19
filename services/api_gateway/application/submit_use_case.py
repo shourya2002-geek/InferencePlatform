@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import time
 
+from redis.exceptions import ConnectionError as RedisConnectionError
+
 from platform_common.config.settings import GatewaySettings
-from platform_common.errors import UpstreamTimeoutError
+from platform_common.errors import QueueOverflowError, UpstreamTimeoutError
 from platform_common.observability import PlatformMetrics, get_logger
 from platform_common.schemas import (
     InferenceRequest,
@@ -78,12 +80,21 @@ class SubmitInferenceUseCase:
         request.image_ref = request.request_id
 
         with Stopwatch() as sw:
-            # 2-3. submit
-            await self._client.submit(request, image)
-            # 4. await the answer
-            result = await self._client.await_result(
-                request.request_id, timeout_s=timeout_s
-            )
+            try:
+                # 2-3. submit
+                await self._client.submit(request, image)
+                # 4. await the answer
+                result = await self._client.await_result(
+                    request.request_id, timeout_s=timeout_s
+                )
+            except RedisConnectionError as exc:
+                # Pool exhausted == we are at the max in-flight bound. Shed load
+                # with 503 (backpressure) rather than a 500, and trip the breaker.
+                self._breaker.record_failure()
+                self._record(model_name, RequestStatus.REJECTED, sw.elapsed_ms)
+                raise QueueOverflowError(
+                    "gateway at max in-flight capacity; retry shortly"
+                ) from exc
 
         if result is None:
             # 5a. timeout: record a failure (may trip the breaker) and raise 504

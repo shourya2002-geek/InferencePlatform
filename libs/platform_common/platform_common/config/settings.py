@@ -8,9 +8,10 @@ the whole stack without collisions.
 from __future__ import annotations
 
 import socket
+from typing import Annotated
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class BaseServiceSettings(BaseSettings):
@@ -36,13 +37,21 @@ class GatewaySettings(BaseServiceSettings):
     service_name: str = "api-gateway"
     host: str = "0.0.0.0"
     port: int = 8080
-    api_keys: list[str] = Field(default_factory=lambda: ["demo-key-staff"])
+    # NoDecode: keep pydantic-settings from JSON-parsing the env value so the
+    # comma-splitting validator below can accept "k1,k2,k3".
+    api_keys: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["demo-key-staff"]
+    )
     rate_limit_rps: float = 200.0
     rate_limit_burst: int = 400
     request_timeout_ms: int = 2000
     max_image_bytes: int = 5 * 1024 * 1024
     circuit_fail_threshold: int = 20
     circuit_reset_seconds: float = 10.0
+    # Each in-flight request holds one Redis connection for its blocking result
+    # wait (BLPOP), so the connection-pool size *is* the gateway's max concurrent
+    # in-flight bound. Beyond it we shed load with 503 rather than 500.
+    max_inflight_requests: int = 1024
 
     @field_validator("api_keys", mode="before")
     @classmethod
@@ -77,7 +86,9 @@ class SchedulerSettings(BaseServiceSettings):
     )
     queue_maxlen: int = 50_000
     num_priority_levels: int = 3
-    class_weights: list[int] = Field(default_factory=lambda: [8, 3, 1])
+    class_weights: Annotated[list[int], NoDecode] = Field(
+        default_factory=lambda: [8, 3, 1]
+    )
 
     @field_validator("class_weights", mode="before")
     @classmethod

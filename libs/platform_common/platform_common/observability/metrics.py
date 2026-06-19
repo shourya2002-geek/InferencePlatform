@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
+    REGISTRY,
     CollectorRegistry,
     Counter,
     Gauge,
@@ -39,6 +40,10 @@ class PlatformMetrics:
     _instance: PlatformMetrics | None = None
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
+        # NOTE: prometheus_client treats `registry=None` as "do not register".
+        # We want the opposite default — register into the global REGISTRY that
+        # the /metrics endpoint serves — so fall back to it explicitly.
+        registry = registry if registry is not None else REGISTRY
         # request_count
         self.request_count = Counter(
             "pip_request_count_total",

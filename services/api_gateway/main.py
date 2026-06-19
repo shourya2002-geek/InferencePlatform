@@ -40,7 +40,12 @@ def create_app() -> FastAPI:
         endpoint=settings.otel_exporter_otlp_endpoint,
     )
     metrics = PlatformMetrics.get()
-    redis = create_redis(settings.redis_url)
+    # Pool sized to the max in-flight bound: every waiting request occupies one
+    # connection for its blocking result read. +32 headroom for the brief
+    # non-blocking ops (image SET, stream XADD, readiness checks).
+    redis = create_redis(
+        settings.redis_url, max_connections=settings.max_inflight_requests + 32
+    )
     client = GatewayDataPlaneClient(redis, queue_maxlen=50_000)
     breaker = CircuitBreaker(
         fail_threshold=settings.circuit_fail_threshold,
